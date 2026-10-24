@@ -98,4 +98,55 @@ final class CorrelationEngineTests: XCTestCase {
 
         XCTAssertNotNil(captured)
     }
+
+    func testAttributesMostRecentContentNotNeutralNeighbors() {
+        // Default config: attributeMostRecentOnly = true.
+        let engine = CorrelationEngine()
+        let start = Date()
+        warmUp(engine, start: start)
+
+        let spikeTime = start.addingTimeInterval(61)
+        // Neutral content 3s before, the real trigger 1s before.
+        engine.ingest(content: ContentEvent(keywords: ["pasta", "recipe"], source: .mock,
+                                            timestamp: spikeTime.addingTimeInterval(-3)))
+        engine.ingest(content: ContentEvent(keywords: ["whiskey", "bar"], source: .mock,
+                                            timestamp: spikeTime.addingTimeInterval(-1)))
+
+        let spike = engine.ingest(sample: HRSample(bpm: 112, timestamp: spikeTime))
+        XCTAssertNotNil(spike)
+        // Only the most-recent (trigger) content is attributed, not the neutral neighbor.
+        XCTAssertEqual(spike!.correlatedContent.count, 1)
+        let keys = spike!.correlatedContent.flatMap { $0.keywords }
+        XCTAssertTrue(keys.contains("whiskey"))
+        XCTAssertFalse(keys.contains("pasta"))
+    }
+
+    func testContentAfterSpikeIsNotAttributed() {
+        let engine = CorrelationEngine()
+        let start = Date()
+        warmUp(engine, start: start)
+
+        let spikeTime = start.addingTimeInterval(61)
+        // Content that appears well after the spike cannot have caused it.
+        let spike = engine.ingest(sample: HRSample(bpm: 112, timestamp: spikeTime))
+        engine.ingest(content: ContentEvent(keywords: ["later"], source: .mock,
+                                            timestamp: spikeTime.addingTimeInterval(5)))
+        XCTAssertNotNil(spike)
+        XCTAssertTrue(spike!.correlatedContent.isEmpty)
+    }
+
+    func testZScoreStaysSaneWithFlatBaseline() {
+        // Even a perfectly flat warmup must not produce an exploding z-score, thanks to
+        // the standard-deviation floor in BaselineTracker.
+        let engine = CorrelationEngine()
+        let start = Date()
+        for i in 0..<60 {
+            engine.ingest(sample: HRSample(bpm: 68, timestamp: start.addingTimeInterval(Double(i))))
+        }
+        let spike = engine.ingest(sample: HRSample(bpm: 90, timestamp: start.addingTimeInterval(61)))
+        XCTAssertNotNil(spike)
+        // +22 bpm over a 1.5 bpm SD floor => z ~= 14.7, not thousands.
+        XCTAssertLessThan(spike!.zScore, 20)
+        XCTAssertGreaterThan(spike!.zScore, 5)
+    }
 }

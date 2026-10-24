@@ -21,20 +21,32 @@ public final class CorrelationEngine {
         public var spikeZThreshold: Double
         /// Minimum seconds between two reported spikes (debounce).
         public var refractoryPeriod: TimeInterval
-        /// How far back/forward from a spike to look for related content.
-        public var correlationWindow: TimeInterval
+        /// How far *before* a spike to look for the content that caused it. A physiological
+        /// reaction follows exposure, so correlation is causal: we look backward, not forward.
+        public var causalLookback: TimeInterval
+        /// Small grace window *after* the spike, to absorb clock jitter between the HR stream
+        /// and content capture (content timestamped a hair after the first elevated beat).
+        public var postSpikeGrace: TimeInterval
+        /// When true, only the single most-recent content event before the spike is attributed
+        /// (the likeliest trigger), instead of every event in the window. Avoids blaming neutral
+        /// content that merely happened to be nearby.
+        public var attributeMostRecentOnly: Bool
         /// Sliding-window size (samples) for the baseline.
         public var baselineWindowSize: Int
 
         public init(
             spikeZThreshold: Double = 2.5,
             refractoryPeriod: TimeInterval = 10,
-            correlationWindow: TimeInterval = 8,
+            causalLookback: TimeInterval = 6,
+            postSpikeGrace: TimeInterval = 1,
+            attributeMostRecentOnly: Bool = true,
             baselineWindowSize: Int = 60
         ) {
             self.spikeZThreshold = spikeZThreshold
             self.refractoryPeriod = refractoryPeriod
-            self.correlationWindow = correlationWindow
+            self.causalLookback = causalLookback
+            self.postSpikeGrace = postSpikeGrace
+            self.attributeMostRecentOnly = attributeMostRecentOnly
             self.baselineWindowSize = baselineWindowSize
         }
     }
@@ -77,9 +89,7 @@ public final class CorrelationEngine {
         lastSpikeTime = sample.timestamp
 
         pruneContent(now: sample.timestamp)
-        let correlated = recentContent.filter {
-            abs($0.timestamp.timeIntervalSince(sample.timestamp)) <= config.correlationWindow
-        }
+        let correlated = correlatedContent(forSpikeAt: sample.timestamp)
 
         let spike = SpikeEvent(
             timestamp: sample.timestamp,
@@ -92,9 +102,26 @@ public final class CorrelationEngine {
         return spike
     }
 
-    /// Drop content events older than the correlation window so the buffer stays small.
+    /// Select the content responsible for a spike. Causal: content must have appeared within
+    /// `causalLookback` seconds *before* the spike (plus a small post-spike grace for jitter).
+    /// When `attributeMostRecentOnly` is set, only the single latest such event is returned —
+    /// the likeliest trigger — rather than every nearby event.
+    private func correlatedContent(forSpikeAt t: Date) -> [ContentEvent] {
+        let inWindow = recentContent.filter {
+            let dt = t.timeIntervalSince($0.timestamp) // positive => content before spike
+            return dt >= -config.postSpikeGrace && dt <= config.causalLookback
+        }
+        guard config.attributeMostRecentOnly else { return inWindow }
+        // Most recent content before (or at) the spike is the likeliest cause.
+        if let latest = inWindow.max(by: { $0.timestamp < $1.timestamp }) {
+            return [latest]
+        }
+        return []
+    }
+
+    /// Drop content events older than the causal lookback so the buffer stays small.
     private func pruneContent(now: Date) {
-        let cutoff = now.addingTimeInterval(-config.correlationWindow)
+        let cutoff = now.addingTimeInterval(-config.causalLookback)
         recentContent.removeAll { $0.timestamp < cutoff }
     }
 }

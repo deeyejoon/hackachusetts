@@ -11,12 +11,20 @@ let package = Package(
         .library(
             name: "PulseCore",
             targets: ["PulseCore"]
+        ),
+        .executable(
+            name: "PulseDemo",
+            targets: ["PulseDemo"]
         )
     ],
     targets: [
         .target(
             name: "PulseCore",
             dependencies: []
+        ),
+        .executableTarget(
+            name: "PulseDemo",
+            dependencies: ["PulseCore"]
         ),
         .testTarget(
             name: "PulseCoreTests",

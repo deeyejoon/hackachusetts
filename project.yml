@@ -118,6 +118,13 @@ targets:
       path: ios/Broadcast/Info.plist
       properties:
         CFBundleDisplayName: Sage
+        # Broadcast Upload Extension registration. These MUST live here (not hand-written
+        # in the plist): XcodeGen regenerates the plist from this block and would otherwise
+        # drop them, leaving the extension unregistered.
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.broadcast-services-upload
+          NSExtensionPrincipalClass: $(PRODUCT_MODULE_NAME).SampleHandler
+          RPBroadcastProcessMode: RPBroadcastProcessModeSampleBuffer
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.hackachusetts.sage.Broadcast

@@ -10,10 +10,16 @@ import Foundation
 public struct BaselineTracker {
     private var window: [Double] = []
     private let capacity: Int
+    private let minStandardDeviation: Double
 
-    /// - Parameter windowSize: how many recent samples define "normal" (e.g. 60 = ~1 min at 1Hz).
-    public init(windowSize: Int = 60) {
+    /// - Parameters:
+    ///   - windowSize: how many recent samples define "normal" (e.g. 60 = ~1 min at 1Hz).
+    ///   - minStandardDeviation: a floor on SD (bpm). Real heart rate always has at least a
+    ///     little beat-to-beat variation; without a floor, an unusually flat warmup window
+    ///     drives SD toward zero and makes every tiny bump look like a giant z-score.
+    public init(windowSize: Int = 60, minStandardDeviation: Double = 1.5) {
         self.capacity = max(2, windowSize)
+        self.minStandardDeviation = max(0, minStandardDeviation)
     }
 
     /// Number of samples currently in the window.
@@ -28,18 +34,16 @@ public struct BaselineTracker {
     }
 
     public var standardDeviation: Double {
-        guard window.count > 1 else { return 0 }
+        guard window.count > 1 else { return minStandardDeviation }
         let m = mean
         let variance = window.reduce(0) { $0 + ($1 - m) * ($1 - m) } / Double(window.count - 1)
-        return variance.squareRoot()
+        return max(variance.squareRoot(), minStandardDeviation)
     }
 
-    /// How many standard deviations above the mean `bpm` is. Returns 0 before warm-up
-    /// or when there's no variation yet (avoids divide-by-zero false positives).
+    /// How many standard deviations above the mean `bpm` is. Returns 0 before warm-up.
     public func zScore(for bpm: Double) -> Double {
-        let sd = standardDeviation
-        guard isWarmedUp, sd > 0.001 else { return 0 }
-        return (bpm - mean) / sd
+        guard isWarmedUp else { return 0 }
+        return (bpm - mean) / standardDeviation
     }
 
     /// Add a sample to the rolling window, evicting the oldest if at capacity.

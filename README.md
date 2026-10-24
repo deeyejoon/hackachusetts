@@ -105,6 +105,45 @@ The three slices are wired together: the engine's spikes flow into a shared
 sends that signal context to the backend so the chatbot can reference it. Full
 contracts and the one-time Xcode/SPM linking step are in `docs/INTEGRATION.md`.
 
+## Running the app
+
+The Xcode project is generated from `project.yml` with [XcodeGen](https://github.com/yonaskolb/XcodeGen),
+so `Sage.xcodeproj` is **not** committed (no `.pbxproj` merge conflicts). After
+cloning or pulling, regenerate it:
+
+```bash
+brew install xcodegen      # one-time
+xcodegen generate          # creates Sage.xcodeproj from project.yml
+open Sage.xcodeproj        # pick an iPhone simulator, press ⌘R
+```
+
+Run `xcodegen generate` again any time `project.yml` changes or someone adds files
+to `ios/`.
+
+**Installing on a physical iPhone (no App Store):** see `docs/DEVICE_INSTALL.md` —
+free development install over USB, including LAN-IP setup and signing.
+
+**Backend (for the Chat screen):**
+
+```bash
+cd backend
+python3 -m venv .venv && source .venv/bin/activate
+pip install -r requirements.txt
+cp .env.example .env        # set HF_API_TOKEN
+# NOTE: macOS AirPlay Receiver squats on port 5000 — use 5001 (or disable AirPlay).
+PORT=5001 python app.py     # GET /health should show hf_token_configured: true
+```
+
+**Engine only (no Xcode, no hardware):**
+
+```bash
+swift test        # 13 unit tests
+swift run PulseDemo   # full spike-detection + weekly-report simulation
+```
+
+See `docs/INTEGRATION.md` for how everything connects and `ios/README.md` /
+`backend/README.md` for per-slice detail.
+
 ## Team
 
 Developed by a team of three students for Hackachusetts 2026.

@@ -64,9 +64,32 @@ swift test
 - **Can** stream the WHOOP band live over CoreBluetooth in the background, and fire local
   notifications for live alerts.
 
+## WHOOP connection ("pairing") — how it actually works
+
+WHOOP's user-facing term is "pair," but the transport is the **standard BLE Heart Rate
+Profile** (service `0x180D`, characteristic `0x2A37`) — the same profile Peloton/Zwift use.
+So `WhoopBLESource` uses plain CoreBluetooth; there is no proprietary pairing to implement.
+
+**Required step:** the band does not broadcast HR by default. In the WHOOP app, turn on
+`Device Settings → Heart Rate Broadcast → Start Broadcast`. Until then the band emits nothing
+on `0x180D` and scanning finds nothing — `WhoopBLESource` reports `.noDeviceFound` after a
+15s timeout so onboarding can prompt the user instead of hanging silently. Because it uses the
+standard profile, any BLE chest strap also works for testing without a WHOOP band.
+
+## iOS integration layer (PulseKit target)
+
+iOS-only, builds against the iOS SDK (not macOS). Each piece implements or feeds the same
+PulseCore abstractions, so the engine is unchanged.
+
+| File | Role |
+|------|------|
+| `WhoopBLESource.swift` | real `HeartRateSource` over CoreBluetooth (standard HR profile) |
+| `LiveAlertService.swift` | turns `CorrelationEngine.onSpike` into a real local notification |
+| `ScreenKeywordCapture.swift` | ReplayKit frames → Vision OCR → real `ContentEvent` keywords |
+
 ## Next steps (iOS app target)
 
-1. `WhoopBLESource` — CoreBluetooth implementation of `HeartRateSource`.
-2. ReplayKit Broadcast Upload Extension + Vision OCR → emits `ContentEvent`s.
-3. `LiveAlertService` — local notification on `onSpike`.
-4. `WeeklyReportStore` — persist spikes, generate `WeeklyReport` weekly.
+1. Xcode app target that wires: `WhoopBLESource` → `CorrelationEngine` → `LiveAlertService`.
+2. Broadcast Upload Extension hosting `ScreenKeywordCapture`, feeding the engine via App Group.
+3. `WeeklyReportStore` — persist spikes, generate `WeeklyReport` weekly.
+4. Minimal SwiftUI screen — live HR + weekly trigger report.

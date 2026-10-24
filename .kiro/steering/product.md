@@ -1,8 +1,9 @@
 # Product
 
-**Kiro** (the iOS app is branded **Sage** in code) is a mental-health app for
-Hackachusetts 2026, built by a team of three. It helps users recognize emotional
-patterns, spot digital content that physically affects them, and connect with support.
+**Sage** is a mental-health app for Hackachusetts 2026, built by a team of three. It
+helps users recognize emotional patterns, spot digital content that physically affects
+them, and connect with support. ("Kiro" is the AI coding assistant used to build it,
+not the product.) The in-app journaling companion is also named Sage.
 
 ## What it does
 
@@ -14,12 +15,6 @@ patterns, spot digital content that physically affects them, and connect with su
   never diagnoses. A crisis-language safety net runs before any model call.
 - **Insights** — a weekly report of the keywords a user had unusual reactions to.
 - **Connect / Community** — professional-care matching and peer support (mocked for now).
-
-## Branding note
-
-The README calls the product **Kiro**; all iOS and backend code calls it **Sage**.
-Treat them as the same product until the team picks one name. Don't rename either
-side unprompted.
 
 ## Implemented vs. mocked (keep this honest)
 

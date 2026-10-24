@@ -7,6 +7,10 @@ struct ChatView: View {
     @EnvironmentObject private var store: SignalStore
     @StateObject private var vm: ChatViewModel
 
+    /// Drives the keyboard for the input field so we can dismiss it on demand
+    /// (tap/scroll the message list, or after sending).
+    @FocusState private var inputFocused: Bool
+
     /// The view model is created lazily with the injected store. We can't read the
     /// environment in a property initializer, so `ChatView` takes an optional store
     /// at init: the app passes it through `RootTabView`, and previews supply their own.
@@ -66,6 +70,13 @@ struct ChatView: View {
                 .padding(.horizontal, 16)
                 .padding(.vertical, 18)
             }
+            // Dismiss the keyboard when the user drags the conversation.
+            .scrollDismissesKeyboard(.interactively)
+            // Tapping anywhere in the message area also dismisses the keyboard.
+            .contentShape(Rectangle())
+            .onTapGesture {
+                inputFocused = false
+            }
             .onChange(of: vm.messages) { _ in
                 scrollToBottom(proxy)
             }
@@ -96,6 +107,7 @@ struct ChatView: View {
                     .font(SageFont.body(16))
                     .foregroundColor(.sageText)
                     .lineLimit(1...4)
+                    .focused($inputFocused)
                     .padding(.horizontal, 16)
                     .padding(.vertical, 10)
                     .background(
@@ -107,9 +119,9 @@ struct ChatView: View {
                             .stroke(Color.sageBorder, lineWidth: 1)
                     )
                     .submitLabel(.send)
-                    .onSubmit { vm.send() }
+                    .onSubmit { send() }
 
-                Button(action: vm.send) {
+                Button(action: send) {
                     Image(systemName: "arrow.up")
                         .font(.system(size: 18, weight: .semibold))
                         .foregroundColor(.sageSurface)
@@ -127,6 +139,12 @@ struct ChatView: View {
     private var sendEnabled: Bool {
         !vm.isSending &&
         !vm.draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    /// Send the draft and dismiss the keyboard so the conversation is visible again.
+    private func send() {
+        inputFocused = false
+        vm.send()
     }
 }
 

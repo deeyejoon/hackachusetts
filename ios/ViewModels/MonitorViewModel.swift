@@ -72,17 +72,40 @@ final class MonitorViewModel: ObservableObject {
     /// injects a heart-rate spike into the mock source. The engine time-joins the two,
     /// emits a `SpikeEvent`, and the monitor fires a real local notification labelled
     /// with the topic.
-    func simulateReaction(topic: String = "exam") {
-        lastTopic = topic
+    ///
+    /// `rawKeywords` is free text — exactly what the OCR extension would hand us off a
+    /// real screen. We tokenise it the same way `ScreenKeywordCapture` does (lowercase,
+    /// split on non-alphanumerics, drop tokens under 3 chars) so the Simulator path
+    /// behaves like the device path.
+    func simulateReaction(rawKeywords: String = "exam results") {
+        let keywords = Self.tokenize(rawKeywords)
+        guard !keywords.isEmpty else { return }
+
+        lastTopic = keywords.first
         monitor.ingest(
             content: ContentEvent(
-                keywords: [topic],
+                keywords: keywords,
                 appName: "instagram",
                 source: .mock
             )
         )
         // Let the content land just before the spike, matching the engine's causal window.
         mockSource.injectSpike()
+    }
+
+    /// Mirror of `ScreenKeywordCapture.extractKeywords` tokenisation for the typed path.
+    static func tokenize(_ text: String) -> [String] {
+        var seen = Set<String>()
+        var result: [String] = []
+        let words = text
+            .lowercased()
+            .components(separatedBy: CharacterSet.alphanumerics.inverted)
+        for word in words where word.count >= 3 {
+            if seen.insert(word).inserted {
+                result.append(word)
+            }
+        }
+        return result
     }
 
     // MARK: - Private

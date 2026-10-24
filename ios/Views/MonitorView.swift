@@ -18,6 +18,10 @@ struct SageMonitorView: View {
     @EnvironmentObject private var store: SignalStore
     @StateObject private var vm: MonitorViewModel
 
+    /// What the user types to stand in for on-screen text the OCR path would read.
+    @State private var keywordText: String = "exam results"
+    @FocusState private var keywordFocused: Bool
+
     init(store: SignalStore? = nil) {
         _vm = StateObject(wrappedValue: MonitorViewModel(store: store ?? SignalStore()))
     }
@@ -104,28 +108,50 @@ struct SageMonitorView: View {
 
     private var demoCard: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("Demo")
+            Text("Keyword detection (Simulator)")
                 .font(SageFont.body(15, weight: .semibold))
                 .foregroundColor(.sageText)
-            Text("No band connected. Simulate a strong physical reaction to on-screen content — you'll get a live notification and it appears in Insights.")
+            Text("Real screen-OCR needs a physical device. In the Simulator, type the words you'd be looking at — they run through the same engine, fire a live notification, and appear in Insights.")
                 .font(SageFont.body(13))
                 .foregroundColor(.sageMuted)
 
-            Button {
-                vm.simulateReaction(topic: "exam")
-            } label: {
-                Text("Simulate a strong reaction")
+            TextField("e.g. exam results deadline", text: $keywordText)
+                .font(SageFont.body(16))
+                .foregroundColor(.sageText)
+                .focused($keywordFocused)
+                .submitLabel(.go)
+                .onSubmit(triggerDetection)
+                .padding(.horizontal, 14)
+                .padding(.vertical, 10)
+                .background(RoundedRectangle(cornerRadius: 12).fill(Color.sageBackground))
+                .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.sageBorder, lineWidth: 1))
+
+            Button(action: triggerDetection) {
+                Text("Detect keywords & trigger reaction")
                     .font(SageFont.body(16, weight: .semibold))
                     .foregroundColor(.sageSurface)
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 12)
-                    .background(RoundedRectangle(cornerRadius: 14).fill(Color.sageMoss))
+                    .background(
+                        RoundedRectangle(cornerRadius: 14)
+                            .fill(detectEnabled ? Color.sageMoss : Color.sageMuted)
+                    )
             }
+            .disabled(!detectEnabled)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(18)
         .background(RoundedRectangle(cornerRadius: 16).fill(Color.sageSurface))
         .overlay(RoundedRectangle(cornerRadius: 16).stroke(Color.sageBorder, lineWidth: 1))
+    }
+
+    private var detectEnabled: Bool {
+        !keywordText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    private func triggerDetection() {
+        keywordFocused = false
+        vm.simulateReaction(rawKeywords: keywordText)
     }
 }
 

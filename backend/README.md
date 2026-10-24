@@ -30,6 +30,14 @@ Request:
 ```json
 { "message": "I've been feeling off all week", "history": [ { "role": "user", "content": "hi" }, { "role": "assistant", "content": "Hey, I'm here." } ] }
 ```
+
+Optional `signal_context` (backward-compatible — omit it and nothing changes). When
+present, a short non-clinical note about a recent physiological reaction is folded
+into the system prompt so Sage can gently reference it. See `docs/INTEGRATION.md`,
+Contract 3.
+```json
+{ "message": "...", "history": [], "signal_context": { "keywords": ["whiskey", "bar"], "app_name": "instagram", "bpm_delta": 22 } }
+```
 Response:
 ```json
 { "reply": "...", "crisis": false, "model": "mistralai/Mistral-7B-Instruct-v0.2" }

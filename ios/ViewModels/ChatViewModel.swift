@@ -13,30 +13,47 @@ final class ChatViewModel: ObservableObject {
 
     private let client: ChatSending
 
+    /// Shared physiological signals. Used to seed the passive insight card with the
+    /// real latest spike, and to attach `signal_context` to the next message so Sage
+    /// can gently reference it. See docs/INTEGRATION.md, Contracts 2 and 3.
+    private let store: SignalStore?
+
     /// How many trailing messages to send to the backend as history.
     /// Keeps the payload small; the backend also trims to its own limit.
     private let historyWindow = 10
 
-    init(client: ChatSending = ChatAPIClient()) {
+    init(client: ChatSending = ChatAPIClient(), store: SignalStore? = nil) {
         self.client = client
+        self.store = store
         seed()
     }
 
-    /// Seed the conversation so the screen has content before the user types.
+    /// Seed the conversation so the screen has content before the user types. When a
+    /// real latest signal is available, the passive insight card reflects it;
+    /// otherwise we fall back to a warm generic opener.
     private func seed() {
-        messages = [
-            ChatMessage(
-                role: .assistant,
-                text: "Your heart rate jumped while you were scrolling about exam results. Want to talk about what came up?",
-                style: .signal,
-                signalTimestamp: "2:14 PM"
-            ),
+        var seeded: [ChatMessage] = []
+
+        if let latest = store?.latestSignal, let topic = latest.keywords.first {
+            seeded.append(
+                ChatMessage(
+                    role: .assistant,
+                    text: "Your heart rate jumped while you were looking at content about \(topic). Want to talk about what came up?",
+                    style: .signal,
+                    signalTimestamp: latest.timeLabel
+                )
+            )
+        }
+
+        seeded.append(
             ChatMessage(
                 role: .assistant,
                 text: "Hey, I'm Sage. How are you feeling right now?",
                 style: .normal
-            ),
-        ]
+            )
+        )
+
+        messages = seeded
     }
 
     /// Send the current draft. Guards against empty input and concurrent sends.
@@ -55,12 +72,17 @@ final class ChatViewModel: ObservableObject {
         // just-added message is included so the backend sees it as the turn).
         let history = historyForRequest(excluding: userMessage.id)
 
+        // Attach the most recent physiological signal (if any) so the backend can
+        // fold a gentle, non-clinical note into Sage's reply. Optional + backward
+        // compatible — see docs/INTEGRATION.md, Contract 3.
+        let signalContext = store?.latestSignal.map { SignalContext(signal: $0) }
+
         isSending = true
 
         Task {
             defer { isSending = false }
             do {
-                let response = try await client.sendMessage(text, history: history)
+                let response = try await client.sendMessage(text, history: history, signalContext: signalContext)
                 let botMessage = ChatMessage(
                     role: .assistant,
                     text: response.reply,

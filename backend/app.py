@@ -62,6 +62,9 @@ def chat():
 
     message = data.get("message")
     history = data.get("history", [])
+    # Optional physiological-signal context (see docs/INTEGRATION.md, Contract 3).
+    # Backward-compatible: older clients omit it and behave exactly as before.
+    signal_context = data.get("signal_context")
 
     # --- Validation -------------------------------------------------------
     if not isinstance(message, str) or not message.strip():
@@ -74,6 +77,9 @@ def chat():
 
     if not isinstance(history, list):
         history = []
+
+    if not isinstance(signal_context, dict):
+        signal_context = None
 
     # --- Crisis short-circuit (BEFORE any model call) ---------------------
     if is_crisis_message(message):
@@ -93,7 +99,7 @@ def chat():
 
     # --- Model call -------------------------------------------------------
     try:
-        reply = chat_service.generate_reply(message, history)
+        reply = chat_service.generate_reply(message, history, signal_context)
     except chat_service.ChatServiceError as exc:
         logger.warning("chat_service error: %s", exc)
         return jsonify({"error": str(exc)}), 502

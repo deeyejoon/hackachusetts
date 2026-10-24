@@ -51,7 +51,59 @@ def _trim_history(history):
     return cleaned[-config.MAX_HISTORY_TURNS:]
 
 
-def build_prompt(message, history):
+def _signal_note(signal_context):
+    """Render an optional physiological-signal note for the system prompt.
+
+    `signal_context` is an optional dict the iOS app sends when a recent heart-rate
+    spike was correlated with on-screen content. We fold a short, non-clinical note
+    into the system prompt so Sage can gently acknowledge what the user physically
+    reacted to — without diagnosing or calling the content harmful (same guardrail
+    the PulseCore engine keeps).
+
+    Returns an empty string when no usable context is present, so prompts for older
+    clients are byte-for-byte unchanged.
+    """
+    if not isinstance(signal_context, dict):
+        return ""
+
+    keywords = signal_context.get("keywords")
+    if not isinstance(keywords, list):
+        keywords = []
+    # Keep only short, clean string keywords; cap to avoid prompt bloat.
+    keywords = [k.strip() for k in keywords if isinstance(k, str) and k.strip()][:6]
+
+    app_name = signal_context.get("app_name")
+    if not isinstance(app_name, str) or not app_name.strip():
+        app_name = None
+
+    bpm_delta = signal_context.get("bpm_delta")
+    if not isinstance(bpm_delta, (int, float)):
+        bpm_delta = None
+
+    if not keywords and not app_name:
+        return ""
+
+    parts = []
+    if keywords:
+        parts.append("content about " + ", ".join(keywords))
+    if app_name:
+        parts.append(f"in {app_name.strip()}")
+    where = " ".join(parts)
+
+    delta_phrase = ""
+    if bpm_delta:
+        delta_phrase = f" (heart rate rose about {int(round(bpm_delta))} bpm above their usual)"
+
+    return (
+        f"\n\nCONTEXT (do not quote verbatim): The user recently had an unusual "
+        f"physiological reaction while viewing {where}{delta_phrase}. This is an "
+        f"observation, not a diagnosis, and the content is not necessarily harmful. "
+        f"If it feels natural, you may gently acknowledge it and invite them to "
+        f"reflect — but follow the user's lead and never insist."
+    )
+
+
+def build_prompt(message, history, signal_context=None):
     """Build a Mistral-Instruct chat-template prompt.
 
     The template wraps each exchange as:
@@ -63,6 +115,9 @@ def build_prompt(message, history):
     Args:
         message: The new user message (already validated/truncated).
         history: Prior turns, oldest first, each {"role", "content"}.
+        signal_context: Optional dict describing a recent physiological spike +
+            correlated content. When present, a short non-clinical note is folded
+            into the system prompt. Omitted/None keeps prompts identical to before.
 
     Returns:
         The assembled prompt string.
@@ -70,6 +125,8 @@ def build_prompt(message, history):
     turns = _trim_history(history)
     # Append the new user message as the final, unanswered turn.
     turns = turns + [{"role": "user", "content": message}]
+
+    system_prompt = SYSTEM_PROMPT + _signal_note(signal_context)
 
     prompt = ""
     first_user = True
@@ -83,7 +140,7 @@ def build_prompt(message, history):
 
         user_content = turn["content"]
         if first_user:
-            user_content = f"{SYSTEM_PROMPT}\n\n{user_content}"
+            user_content = f"{system_prompt}\n\n{user_content}"
             first_user = False
 
         prompt += f"<s>[INST] {user_content} [/INST]"
@@ -142,7 +199,7 @@ def _post_to_hf(prompt):
     return resp
 
 
-def generate_reply(message, history):
+def generate_reply(message, history, signal_context=None):
     """Generate a model reply for the given message and history.
 
     Handles HTTP 503 (model loading) by retrying once after a short delay.
@@ -150,6 +207,7 @@ def generate_reply(message, history):
     Args:
         message: The new user message (validated/truncated upstream).
         history: Prior turns, oldest first.
+        signal_context: Optional physiological-signal context (see build_prompt).
 
     Returns:
         The model's reply text, stripped.
@@ -157,7 +215,7 @@ def generate_reply(message, history):
     Raises:
         ChatServiceError: on timeout, repeated 503, non-200, or empty output.
     """
-    prompt = build_prompt(message, history)
+    prompt = build_prompt(message, history, signal_context)
 
     resp = _post_to_hf(prompt)
 

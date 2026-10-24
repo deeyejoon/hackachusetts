@@ -91,6 +91,20 @@ Our initial prototype will focus on demonstrating:
 - User-confirmed trigger preferences.
 - A basic mental health companion interface.
 
+## Repository layout
+
+| Path | What it is |
+|------|------------|
+| `Sources/`, `Package.swift` | **PulseCore** — the physiological engine (Swift Package). See `PulseCore.md`. |
+| `ios/` | **Sage** — the SwiftUI app (4 screens). See `ios/README.md`. |
+| `backend/` | **Sage backend** — Flask + Hugging Face chatbot. See `backend/README.md`. |
+| `docs/INTEGRATION.md` | **How the three slices connect.** Read this before cross-slice work. |
+
+The three slices are wired together: the engine's spikes flow into a shared
+`SignalStore` that drives the Insights screen and the Chat signal card, and the app
+sends that signal context to the backend so the chatbot can reference it. Full
+contracts and the one-time Xcode/SPM linking step are in `docs/INTEGRATION.md`.
+
 ## Team
 
 Developed by a team of three students for Hackachusetts 2026.

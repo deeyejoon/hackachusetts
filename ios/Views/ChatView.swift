@@ -4,7 +4,15 @@
 import SwiftUI
 
 struct ChatView: View {
-    @StateObject private var vm = ChatViewModel()
+    @EnvironmentObject private var store: SignalStore
+    @StateObject private var vm: ChatViewModel
+
+    /// The view model is created lazily with the injected store. We can't read the
+    /// environment in a property initializer, so `ChatView` takes an optional store
+    /// at init: the app passes it through `RootTabView`, and previews supply their own.
+    init(store: SignalStore? = nil) {
+        _vm = StateObject(wrappedValue: ChatViewModel(store: store))
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -152,5 +160,7 @@ struct TypingIndicatorView: View {
 }
 
 #Preview {
-    ChatView()
+    let store = SignalStore()
+    return ChatView(store: store)
+        .environmentObject(store)
 }

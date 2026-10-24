@@ -4,6 +4,8 @@
 import SwiftUI
 
 struct RootTabView: View {
+    @EnvironmentObject private var store: SignalStore
+
     init() {
         // Tint the active tab moss green and give the bar a warm surface.
         let appearance = UITabBarAppearance()
@@ -16,7 +18,7 @@ struct RootTabView: View {
 
     var body: some View {
         TabView {
-            ChatView()
+            ChatView(store: store)
                 .tabItem {
                     Label("Chat", systemImage: "bubble.left.and.text.bubble.right")
                 }
@@ -42,4 +44,5 @@ struct RootTabView: View {
 
 #Preview {
     RootTabView()
+        .environmentObject(SignalStore())
 }

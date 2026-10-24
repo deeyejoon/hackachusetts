@@ -1,7 +1,22 @@
 # Sage iOS App (SwiftUI)
 
-Four-screen SwiftUI prototype. Screen 1 (Chat) is a real integration against the
-Flask backend; Screens 2–4 (Insights, Connect, Community) use mocked data.
+Four-screen SwiftUI prototype.
+
+- **Chat (Screen 1):** real integration against the Flask backend. Now also seeds
+  its passive insight card from the latest physiological signal and attaches
+  `signal_context` to each message (see `docs/INTEGRATION.md`, Contract 3).
+- **Insights (Screen 2):** the "Signals this week" card now renders the real weekly
+  trigger report from `SignalStore`. The emotions/pattern cards remain illustrative.
+- **Connect / Community (Screens 3–4):** still mocked placeholders.
+
+### How the physiological engine connects
+
+`SignalStore` (in `ViewModels/`) is the single source of truth for physiological
+signals, injected into the environment by `SageApp` and observed by both Insights
+and Chat. Today it serves representative sample signals so the Simulator looks real.
+When the Xcode target links the **PulseCore** Swift Package, `PulseCoreBridge`
+(in `Networking/`) converts real `SpikeEvent`s into the app's `PhysioSignal` with no
+view changes. Full steps are in `docs/INTEGRATION.md`.
 
 ## Opening in Xcode
 
@@ -46,10 +61,16 @@ so add this to the app target's **Info.plist** to allow local connections:
 
 ```
 ios/
-  SageApp.swift              @main entry point
-  Models/ChatMessage.swift   message model (role, style, signal metadata)
-  ViewModels/ChatViewModel.swift   state, networking orchestration, seed content
-  Networking/ChatAPIClient.swift   URLSession wrapper (ChatSending protocol, typed errors)
+  SageApp.swift              @main entry point; creates + injects SignalStore
+  Models/
+    ChatMessage.swift        message model (role, style, signal metadata)
+    PhysioSignal.swift       app-side mirror of PulseCore SpikeEvent + weekly report
+  ViewModels/
+    ChatViewModel.swift      state, networking orchestration, seed content
+    SignalStore.swift        single source of truth for physiological signals
+  Networking/
+    ChatAPIClient.swift      URLSession wrapper (ChatSending protocol, typed errors)
+    PulseCoreBridge.swift    SpikeEvent -> PhysioSignal bridge (active once PulseCore is linked)
   Views/
     RootTabView.swift        bottom tab bar
     ChatView.swift           Screen 1 + typing indicator

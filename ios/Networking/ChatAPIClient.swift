@@ -21,9 +21,48 @@ enum ChatAPIError: Error {
     case network(Error)
 }
 
+/// Optional physiological-signal context attached to a chat turn. Mirrors the
+/// backend's `signal_context` shape (snake_case keys). See docs/INTEGRATION.md,
+/// Contract 3.
+struct SignalContext: Encodable {
+    let keywords: [String]
+    let appName: String?
+    let bpmDelta: Int
+
+    enum CodingKeys: String, CodingKey {
+        case keywords
+        case appName = "app_name"
+        case bpmDelta = "bpm_delta"
+    }
+
+    init(keywords: [String], appName: String?, bpmDelta: Int) {
+        self.keywords = keywords
+        self.appName = appName
+        self.bpmDelta = bpmDelta
+    }
+
+    /// Convenience: build directly from a `PhysioSignal`.
+    init(signal: PhysioSignal) {
+        self.keywords = signal.keywords
+        self.appName = signal.appName
+        self.bpmDelta = Int(signal.bpmDelta.rounded())
+    }
+}
+
 /// Abstraction the view model depends on, so tests can inject a mock.
 protocol ChatSending {
-    func sendMessage(_ message: String, history: [ChatMessage]) async throws -> ChatResponse
+    func sendMessage(
+        _ message: String,
+        history: [ChatMessage],
+        signalContext: SignalContext?
+    ) async throws -> ChatResponse
+}
+
+extension ChatSending {
+    /// Backward-compatible overload so existing callers/tests need no changes.
+    func sendMessage(_ message: String, history: [ChatMessage]) async throws -> ChatResponse {
+        try await sendMessage(message, history: history, signalContext: nil)
+    }
 }
 
 final class ChatAPIClient: ChatSending {
@@ -57,6 +96,25 @@ final class ChatAPIClient: ChatSending {
     private struct RequestBody: Encodable {
         let message: String
         let history: [RequestTurn]
+        let signalContext: SignalContext?
+
+        enum CodingKeys: String, CodingKey {
+            case message
+            case history
+            case signalContext = "signal_context"
+        }
+
+        /// Encode `signal_context` only when present, so a request with no signal is
+        /// byte-identical to the pre-integration shape. (The synthesized encoder
+        /// would otherwise emit an explicit `null`.)
+        func encode(to encoder: Encoder) throws {
+            var c = encoder.container(keyedBy: CodingKeys.self)
+            try c.encode(message, forKey: .message)
+            try c.encode(history, forKey: .history)
+            if let signalContext {
+                try c.encode(signalContext, forKey: .signalContext)
+            }
+        }
     }
 
     private struct ErrorBody: Decodable {
@@ -65,7 +123,11 @@ final class ChatAPIClient: ChatSending {
 
     // MARK: - API
 
-    func sendMessage(_ message: String, history: [ChatMessage]) async throws -> ChatResponse {
+    func sendMessage(
+        _ message: String,
+        history: [ChatMessage],
+        signalContext: SignalContext?
+    ) async throws -> ChatResponse {
         let url = baseURL.appendingPathComponent("chat")
 
         var request = URLRequest(url: url)
@@ -78,7 +140,7 @@ final class ChatAPIClient: ChatSending {
         let turns = history.map {
             RequestTurn(role: $0.role.rawValue, content: $0.text)
         }
-        let body = RequestBody(message: message, history: turns)
+        let body = RequestBody(message: message, history: turns, signalContext: signalContext)
 
         do {
             request.httpBody = try JSONEncoder().encode(body)

@@ -5,7 +5,12 @@ import SwiftUI
 
 struct InsightsView: View {
 
-    // MARK: - Mock data
+    /// Real physiological signals, shared across the app. The "Signals this week"
+    /// card below is driven by this; the emotions/pattern cards remain illustrative
+    /// placeholders until a mood model exists. See docs/INTEGRATION.md, Contract 2.
+    @EnvironmentObject private var store: SignalStore
+
+    // MARK: - Mock data (emotions + pattern cards remain illustrative for now)
 
     private struct Emotion: Identifiable {
         let id = UUID()
@@ -21,18 +26,11 @@ struct InsightsView: View {
         Emotion(name: "Calm", percent: 18, color: Color(hex: 0x8AA5C2)),
     ]
 
-    private struct Signal: Identifiable {
-        let id = UUID()
-        let category: String
-        let detail: String
-        let count: Int
+    /// The "Signals this week" card now renders the real weekly report derived from
+    /// `SignalStore`, ranked exactly like PulseCore's `WeeklyReport`.
+    private var topTriggers: [KeywordInsight] {
+        Array(store.weeklyReport.keywords.prefix(5))
     }
-
-    private let signals: [Signal] = [
-        Signal(category: "Academic pressure", detail: "Heart rate spiked around exam-result posts", count: 5),
-        Signal(category: "Social comparison", detail: "Elevated readings while scrolling highlight reels", count: 3),
-        Signal(category: "Late-night news", detail: "Sustained spikes after 11 PM feeds", count: 2),
-    ]
 
     var body: some View {
         ScrollView {
@@ -107,26 +105,32 @@ struct InsightsView: View {
                     .font(SageFont.body(17, weight: .semibold))
                     .foregroundColor(.sageText)
 
-                ForEach(signals) { signal in
-                    HStack(alignment: .top, spacing: 12) {
-                        VStack(alignment: .leading, spacing: 3) {
-                            Text(signal.category)
-                                .font(SageFont.body(15, weight: .semibold))
-                                .foregroundColor(.sageText)
-                            Text(signal.detail)
-                                .font(SageFont.body(13))
-                                .foregroundColor(.sageMuted)
+                if topTriggers.isEmpty {
+                    Text("No unusual physiological responses detected yet. As your watch picks up reactions while you scroll, the keywords behind them will show up here.")
+                        .font(SageFont.body(13))
+                        .foregroundColor(.sageMuted)
+                } else {
+                    ForEach(topTriggers) { trigger in
+                        HStack(alignment: .top, spacing: 12) {
+                            VStack(alignment: .leading, spacing: 3) {
+                                Text(trigger.keyword.capitalized)
+                                    .font(SageFont.body(15, weight: .semibold))
+                                    .foregroundColor(.sageText)
+                                Text("Heart rate rose about +\(Int(trigger.averageBpmDelta.rounded())) bpm (intensity z=\(String(format: "%.1f", trigger.averageIntensity)))")
+                                    .font(SageFont.body(13))
+                                    .foregroundColor(.sageMuted)
+                            }
+                            Spacer()
+                            Text("\(trigger.occurrences)")
+                                .font(SageFont.body(13, weight: .semibold))
+                                .foregroundColor(.sageSurface)
+                                .frame(width: 26, height: 26)
+                                .background(Circle().fill(Color.sageTerracotta))
                         }
-                        Spacer()
-                        Text("\(signal.count)")
-                            .font(SageFont.body(13, weight: .semibold))
-                            .foregroundColor(.sageSurface)
-                            .frame(width: 26, height: 26)
-                            .background(Circle().fill(Color.sageTerracotta))
                     }
                 }
 
-                Text("Based on your watch's heart rate data and the trigger categories you've flagged. Nothing here leaves your device unless you choose to share it.")
+                Text("Based on your watch's heart rate data and the content on screen when it reacted. Nothing here leaves your device unless you choose to share it.")
                     .font(SageFont.body(12))
                     .foregroundColor(.sageMuted)
                     .padding(.top, 4)
@@ -181,4 +185,5 @@ struct SageCard<Content: View>: View {
 
 #Preview {
     InsightsView()
+        .environmentObject(SignalStore())
 }

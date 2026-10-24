@@ -1,0 +1,81 @@
+# XcodeGen spec for the Sage iOS app.
+#
+# This generates Sage.xcodeproj from the loose Swift sources in ios/ and links the
+# local PulseCore Swift Package (the engine in Sources/). Because the project is
+# generated from this ~40-line spec, it stays merge-friendly for the team: regenerate
+# with `xcodegen generate` instead of hand-editing a .pbxproj.
+#
+# Usage:
+#   brew install xcodegen      # one-time
+#   xcodegen generate          # produces Sage.xcodeproj
+#   open Sage.xcodeproj
+#
+# Installing on a physical iPhone (free, no App Store) — see docs/DEVICE_INSTALL.md.
+#   The bundle id below must be UNIQUE to your Apple ID. If a teammate already used
+#   it, change PRODUCT_BUNDLE_IDENTIFIER here (or just edit it in Xcode → Signing),
+#   then re-run `xcodegen generate`. Pick your personal Apple ID team under
+#   Signing & Capabilities with "Automatically manage signing" ticked.
+#
+# See docs/INTEGRATION.md for how the slices connect.
+
+name: Sage
+
+options:
+  bundleIdPrefix: com.hackachusetts
+  deploymentTarget:
+    iOS: "16.0"
+  createIntermediateGroups: true
+
+# Local Swift Package: the PulseCore engine lives at the repo root (Package.swift).
+# Linking it makes `#if canImport(PulseCore)` true, so PulseCoreBridge compiles in
+# and real SpikeEvents flow into the app with no view changes.
+packages:
+  PulseCore:
+    path: .
+
+targets:
+  Sage:
+    type: application
+    platform: iOS
+    sources:
+      - path: ios
+        # The app sources only; exclude docs so they don't end up in the bundle.
+        excludes:
+          - "README.md"
+    info:
+      path: ios/Info.plist
+      properties:
+        CFBundleShortVersionString: "0.1.0"
+        CFBundleVersion: "1"
+        UILaunchScreen: {}
+        # Backend base URL read by ChatAPIClient. Empty -> the app falls back to
+        # 127.0.0.1:5000 (correct for the Simulator). For a PHYSICAL DEVICE, set this
+        # to your Mac's LAN IP, e.g. http://136.167.121.9:5000, then re-run
+        # `xcodegen generate`. See docs/DEVICE_INSTALL.md.
+        SAGE_BASE_URL: "http://136.167.121.9:5001"
+        # Allow plain-HTTP to the local/LAN backend (hackathon only).
+        NSAppTransportSecurity:
+          NSAllowsLocalNetworking: true
+        # Supported orientations (iPhone).
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
+    settings:
+      base:
+        # Must be unique to your Apple ID for free device provisioning. Change here
+        # or in Xcode → Signing & Capabilities if a teammate already used it.
+        PRODUCT_BUNDLE_IDENTIFIER: com.hackachusetts.sage
+        MARKETING_VERSION: "0.1.0"
+        CURRENT_PROJECT_VERSION: "1"
+        GENERATE_INFOPLIST_FILE: NO
+        SWIFT_VERSION: "5.9"
+        TARGETED_DEVICE_FAMILY: "1,2"
+        # Automatic signing so Xcode provisions against your personal Apple ID.
+        # Leave DEVELOPMENT_TEAM blank and pick the team in Xcode's GUI (easiest),
+        # or paste your 10-char Team ID here.
+        CODE_SIGN_STYLE: Automatic
+        DEVELOPMENT_TEAM: ""
+    dependencies:
+      # PulseCore only for now. Add PulseKit later for on-device WHOOP BLE / OCR /
+      # notifications (needs entitlements + Info.plist usage strings).
+      - package: PulseCore
+        product: PulseCore

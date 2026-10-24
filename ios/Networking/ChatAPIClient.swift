@@ -71,11 +71,22 @@ final class ChatAPIClient: ChatSending {
 
     /// Base URL of the backend.
     ///
-    /// - Simulator: use `http://127.0.0.1:5000`
-    /// - Physical device: use your Mac's LAN IP, e.g. `http://192.168.1.42:5000`
+    /// Resolution order:
+    ///   1. `SAGE_BASE_URL` in Info.plist (set via project.yml / env at generate time)
+    ///   2. the compiled-in default below
     ///
-    /// Switching environments is a one-line change here.
-    static let baseURL = URL(string: "http://127.0.0.1:5000")!
+    /// - Simulator: the default `http://127.0.0.1:5000` works.
+    /// - Physical device: a phone can't reach the Mac's loopback. Point it at the
+    ///   Mac's LAN IP, e.g. `http://136.167.121.9:5000`, by setting SAGE_BASE_URL
+    ///   (see docs/DEVICE_INSTALL.md) — no source edit needed.
+    static let baseURL: URL = {
+        if let str = Bundle.main.object(forInfoDictionaryKey: "SAGE_BASE_URL") as? String,
+           !str.isEmpty,
+           let url = URL(string: str) {
+            return url
+        }
+        return URL(string: "http://127.0.0.1:5000")!
+    }()
 
     private let session: URLSession
     private let baseURL: URL

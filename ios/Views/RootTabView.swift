@@ -23,6 +23,11 @@ struct RootTabView: View {
                     Label("Chat", systemImage: "bubble.left.and.text.bubble.right")
                 }
 
+            SageMonitorView(store: store)
+                .tabItem {
+                    Label("Pulse", systemImage: "heart.fill")
+                }
+
             InsightsView()
                 .tabItem {
                     Label("Insights", systemImage: "chart.bar")

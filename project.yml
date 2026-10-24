@@ -59,6 +59,8 @@ targets:
         # Supported orientations (iPhone).
         UISupportedInterfaceOrientations:
           - UIInterfaceOrientationPortrait
+        # Shown when the app requests permission to post live-reaction alerts.
+        NSUserNotificationsUsageDescription: "Sage sends you a gentle, private nudge the moment it notices an unusually strong physical reaction, so you can pause and check in with yourself."
     settings:
       base:
         # Must be unique to your Apple ID for free device provisioning. Change here
@@ -75,7 +77,12 @@ targets:
         CODE_SIGN_STYLE: Automatic
         DEVELOPMENT_TEAM: ""
     dependencies:
-      # PulseCore only for now. Add PulseKit later for on-device WHOOP BLE / OCR /
-      # notifications (needs entitlements + Info.plist usage strings).
+      # PulseCore: the headless engine (baseline, correlation, weekly report).
       - package: PulseCore
         product: PulseCore
+      # PulseKit: on-device integrations — LiveAlertService (notifications),
+      # PhysiologicalMonitor (source→engine→alerts wiring), ScreenKeywordCapture
+      # (ReplayKit OCR), WhoopBLESource (CoreBluetooth). iOS-only; each framework
+      # is guarded by `#if canImport(...)` so the Swift package still builds on macOS.
+      - package: PulseCore
+        product: PulseKit

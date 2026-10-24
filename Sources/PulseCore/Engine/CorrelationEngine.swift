@@ -64,6 +64,9 @@ public final class CorrelationEngine {
         self.baseline = BaselineTracker(windowSize: config.baselineWindowSize)
     }
 
+    /// The user's current rolling baseline BPM (0 until warm-up). Useful for live UI display.
+    public var currentBaseline: Double { baseline.mean }
+
     /// Record a content exposure. Kept in a short rolling buffer for time-joining to spikes.
     public func ingest(content event: ContentEvent) {
         recentContent.append(event)

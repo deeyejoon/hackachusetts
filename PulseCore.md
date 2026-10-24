@@ -86,10 +86,17 @@ PulseCore abstractions, so the engine is unchanged.
 | `WhoopBLESource.swift` | real `HeartRateSource` over CoreBluetooth (standard HR profile) |
 | `LiveAlertService.swift` | turns `CorrelationEngine.onSpike` into a real local notification |
 | `ScreenKeywordCapture.swift` | ReplayKit frames → Vision OCR → real `ContentEvent` keywords |
+| `PhysiologicalMonitor.swift` | `ObservableObject` wiring source → engine → alerts + store |
+| `MonitorView.swift` | SwiftUI screen: live HR, connection status, weekly report |
 
-## Next steps (iOS app target)
+Also in PulseCore: `WeeklyReportStore` persists spikes to JSON (injectable file URL for the
+App Group container) and generates the report over the last 7 days.
 
-1. Xcode app target that wires: `WhoopBLESource` → `CorrelationEngine` → `LiveAlertService`.
-2. Broadcast Upload Extension hosting `ScreenKeywordCapture`, feeding the engine via App Group.
-3. `WeeklyReportStore` — persist spikes, generate `WeeklyReport` weekly.
-4. Minimal SwiftUI screen — live HR + weekly trigger report.
+## Next steps (Xcode app target — require Xcode/hardware, not buildable from CLI)
+
+1. Create an iOS App project; add this package as a local dependency.
+2. Capabilities: Bluetooth background mode, Notifications, a Broadcast Upload Extension
+   (hosts `ScreenKeywordCapture`), and an App Group (shared `WeeklyReportStore` file).
+3. In the app: `let monitor = PhysiologicalMonitor(source: WhoopBLESource(), store: store)`
+   then show `MonitorView(monitor: monitor)`. (Use `MockHeartRateSource` for no-band demos.)
+4. Test on device with a real band — enable HR Broadcast in the WHOOP app first.

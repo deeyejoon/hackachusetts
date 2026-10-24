@@ -2,17 +2,22 @@
 //  Drives the on-device physiological-monitoring screen.
 //
 //  This is the app-side glue around PulseKit's `PhysiologicalMonitor`. It:
-//    • starts a heart-rate source (mock for Simulator/demo, WHOOP BLE on device),
-//    • feeds the engine content keywords (OCR-style `ContentEvent`s),
-//    • fires a real local notification on each spike (via LiveAlertService inside
-//      the monitor), and
-//    • mirrors each spike into the app's shared `SignalStore` so Insights + Chat
-//      stay in sync with what the engine detects.
+//    • starts a heart-rate source — a real `WhoopBLESource` on device, a
+//      `MockHeartRateSource` in the Simulator (where BLE/ReplayKit don't work),
+//    • drains OCR keyword events the broadcast extension wrote to the shared App Group
+//      queue and feeds them into the engine,
+//    • fires a real local notification on each spike (via LiveAlertService inside the
+//      monitor), and
+//    • mirrors each spike into the app's shared `SignalStore` so Insights + Chat stay in
+//      sync with what the engine detects.
 //
-//  For the hackathon demo (no WHOOP band), `simulateReaction(topic:)` injects a
-//  realistic spike into the mock source AND primes the engine with a keyword so the
-//  resulting notification and signal are labelled — proving the live pipeline end
-//  to end in the Simulator.
+//  REAL (device) path:
+//      WhoopBLESource → engine ← ScreenKeywordCapture (broadcast ext) via SharedContentLog
+//                         │
+//                         └─ onSpike → LiveAlertService (notification) + SignalStore + report
+//
+//  SIMULATOR path: MockHeartRateSource + the typed-keyword fallback (`simulateReaction`),
+//  since neither BLE nor screen broadcast is available in the Simulator.
 
 import Foundation
 import Combine
@@ -27,57 +32,78 @@ final class MonitorViewModel: ObservableObject {
     /// The PulseKit object that wires source → engine → alerts + weekly report.
     let monitor: PhysiologicalMonitor
 
-    /// Mock source so the whole pipeline runs with no hardware. On a real build you
-    /// would construct the monitor with a `WhoopBLESource` instead.
-    private let mockSource: MockHeartRateSource
+    /// Bundle id of the broadcast extension, handed to the broadcast picker.
+    let broadcastExtensionBundleID: String =
+        (Bundle.main.bundleIdentifier ?? "com.hackachusetts.sage") + ".Broadcast"
 
     /// The app's shared signal store, so a detected spike also shows up in Insights
     /// and seeds the Chat signal card.
     private let store: SignalStore
 
-    /// Latest keyword used to label a simulated reaction (shown in the UI).
+    /// Non-nil only in the Simulator / no-hardware builds, used by `simulateReaction`.
+    private let mockSource: MockHeartRateSource?
+
+    /// Latest keyword used to label a reaction (shown in the UI).
     @Published private(set) var lastTopic: String?
+
+    /// True when running the real device pipeline (BLE + screen broadcast available).
+    let isDeviceMode: Bool
+
+    private var drainTimer: Timer?
 
     init(store: SignalStore) {
         self.store = store
 
-        let source = MockHeartRateSource()
-        self.mockSource = source
+        #if targetEnvironment(simulator)
+        self.isDeviceMode = false
+        #else
+        self.isDeviceMode = true
+        #endif
 
-        // Persist the spike log in the app's caches dir. On device with the ReplayKit
-        // extension you would point this at a shared App Group container instead so the
-        // extension and app read/write the same file.
-        let reportURL = MonitorViewModel.reportFileURL()
+        // Choose the heart-rate source for this environment.
+        let source: HeartRateSource
+        if isDeviceMode {
+            source = WhoopBLESource()      // live band over CoreBluetooth
+            self.mockSource = nil
+        } else {
+            let mock = MockHeartRateSource()
+            source = mock
+            self.mockSource = mock
+        }
+
+        // On device, persist spikes to the SHARED App Group store so the broadcast
+        // extension and the app agree on history. In the Simulator (no App Group
+        // container), fall back to the app's caches dir.
+        let reportURL = SharedContainer.spikeLogURL ?? MonitorViewModel.fallbackReportURL()
         let reportStore = WeeklyReportStore(fileURL: reportURL)
 
         self.monitor = PhysiologicalMonitor(source: source, store: reportStore)
 
-        // Mirror every detected spike into the app's SignalStore. The monitor's own
-        // onSpike (alerts + weekly report) still runs; this adds the app-UI sync.
         bridgeSpikesIntoStore()
     }
 
-    /// Request notification permission and begin streaming heart-rate samples.
+    /// Request notification permission, start streaming heart-rate samples, and (on
+    /// device) begin draining OCR keyword events from the shared queue into the engine.
     func start() async {
         await monitor.start()
+        if isDeviceMode {
+            startDrainingContentQueue()
+        }
     }
 
     func stop() {
+        drainTimer?.invalidate()
+        drainTimer = nil
         monitor.stop()
     }
 
-    /// DEMO: simulate an unusually strong reaction to on-screen content.
+    /// SIMULATOR DEMO: stand in for the OCR path by typing the on-screen text.
     ///
-    /// Feeds the engine a keyword `ContentEvent` (as the OCR extension would), then
-    /// injects a heart-rate spike into the mock source. The engine time-joins the two,
-    /// emits a `SpikeEvent`, and the monitor fires a real local notification labelled
-    /// with the topic.
-    ///
-    /// `rawKeywords` is free text — exactly what the OCR extension would hand us off a
-    /// real screen. We tokenise it the same way `ScreenKeywordCapture` does (lowercase,
-    /// split on non-alphanumerics, drop tokens under 3 chars) so the Simulator path
-    /// behaves like the device path.
+    /// Feeds the engine a keyword `ContentEvent` (tokenised exactly like
+    /// `ScreenKeywordCapture`), then injects a heart-rate spike into the mock source.
+    /// No-op on device, where real OCR + BLE drive the pipeline instead.
     func simulateReaction(rawKeywords: String = "exam results") {
+        guard let mockSource else { return }
         let keywords = Self.tokenize(rawKeywords)
         guard !keywords.isEmpty else { return }
 
@@ -89,7 +115,6 @@ final class MonitorViewModel: ObservableObject {
                 source: .mock
             )
         )
-        // Let the content land just before the spike, matching the engine's causal window.
         mockSource.injectSpike()
     }
 
@@ -110,17 +135,26 @@ final class MonitorViewModel: ObservableObject {
 
     // MARK: - Private
 
-    /// Wire a lightweight observer that converts each engine spike into a `PhysioSignal`
-    /// and records it in the app's SignalStore. We chain onto the engine via the monitor's
-    /// public ingest path by observing the weekly report is not enough, so we subscribe to
-    /// the same spikes the monitor sees through a dedicated callback on the shared engine.
-    ///
-    /// `PhysiologicalMonitor` owns the engine privately, so instead we react to its published
-    /// `lastSpikeKeywords`/report changes. Simpler and sufficient for the UI: whenever the
-    /// monitor reports a new spike's keywords, record a matching signal.
+    /// Poll the shared App Group queue the broadcast extension writes to, and feed any
+    /// new OCR keyword events into the engine so they can correlate with spikes.
+    private func startDrainingContentQueue() {
+        let timer = Timer(timeInterval: 1.0, repeats: true) { [weak self] _ in
+            Task { @MainActor in
+                guard let self else { return }
+                for event in SharedContentLog.drain() {
+                    self.monitor.ingest(content: event)
+                    if let first = event.keywords.first { self.lastTopic = first }
+                }
+            }
+        }
+        RunLoop.main.add(timer, forMode: .common)
+        self.drainTimer = timer
+    }
+
+    /// Mirror the monitor's detected spikes into the app's SignalStore for Insights/Chat.
     private func bridgeSpikesIntoStore() {
         monitor.$lastSpikeKeywords
-            .dropFirst() // ignore the initial empty value
+            .dropFirst()
             .sink { [weak self] keywords in
                 guard let self else { return }
                 let signal = PhysioSignal(
@@ -129,7 +163,7 @@ final class MonitorViewModel: ObservableObject {
                     baselineBpm: self.monitor.baselineBPM,
                     zScore: 0, // display-only mirror; exact z lives in the weekly report
                     keywords: keywords,
-                    appName: "instagram"
+                    appName: nil
                 )
                 self.store.record(signal)
             }
@@ -138,8 +172,8 @@ final class MonitorViewModel: ObservableObject {
 
     private var cancellables = Set<AnyCancellable>()
 
-    /// Spike-log location. Caches dir keeps it out of iCloud/backup and is fine for a demo.
-    private static func reportFileURL() -> URL {
+    /// Simulator fallback when no App Group container exists.
+    private static func fallbackReportURL() -> URL {
         let base = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first
             ?? FileManager.default.temporaryDirectory
         return base.appendingPathComponent("sage-spikes.json")

@@ -71,6 +71,41 @@ The first launch shows "Untrusted Developer". On the iPhone:
 
 Re-launch the app (tap its icon, or ⌘R again).
 
+## 5a. Enable live keyword detection (App Group + screen broadcast)
+
+Real on-screen keyword detection uses a **Broadcast Upload Extension** (`SageBroadcast`)
+that OCRs the screen during a user-started screen broadcast and shares results with the
+app through an **App Group**. `xcodegen` wires the targets and entitlement files, but on a
+**free Apple ID** you must confirm the capability + signing for the extension once in Xcode:
+
+1. **Sign the extension.** Select the **SageBroadcast** target → **Signing & Capabilities**
+   → tick **Automatically manage signing** and pick the **same Team** as the Sage app. If
+   you see "bundle identifier is not available", change it to match your app's prefix, e.g.
+   `com.yourname.sage.Broadcast`.
+2. **App Group on BOTH targets.** For **Sage** and **SageBroadcast**, confirm the **App
+   Groups** capability lists the SAME group id: `group.com.hackachusetts.sage`. If you
+   changed the app's bundle prefix, change the group id to match on both targets AND update
+   it in three files, then regenerate:
+   - `ios/Shared/SharedContainer.swift` (`appGroupID`)
+   - `ios/Sage.entitlements`
+   - `ios/Broadcast/Broadcast.entitlements`
+   ```bash
+   xcodegen generate
+   ```
+   > If the group ids don't match on both targets, the shared files never appear and no
+   > keywords reach the app — detection silently does nothing.
+3. **Using it on the phone:** open the **Pulse** tab → tap the broadcast button → choose
+   **Sage** → **Start Broadcast**. A persistent **red** status indicator appears. Now browse
+   other apps normally. When your heart rate spikes near on-screen text, you get a live
+   notification and the trigger shows up in **Insights**. Tap the red indicator (or the
+   button again) to stop.
+
+   Notes:
+   - This requires a real device **and** a connected WHOOP/BLE heart-rate strap (turn on
+     **HR Broadcast** in the WHOOP app first — see `docs/INTEGRATION.md`).
+   - Nothing is captured unless you explicitly start the broadcast; iOS shows the red
+     indicator the entire time. There is no silent/background screen capture.
+
 ## 6. Run the backend so Chat works
 
 > ⚠️ **Port 5000 is taken on macOS by AirPlay Receiver** (the `ControlCenter`

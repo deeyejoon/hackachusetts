@@ -39,9 +39,12 @@ targets:
     platform: iOS
     sources:
       - path: ios
-        # The app sources only; exclude docs so they don't end up in the bundle.
+        # The app sources only; exclude docs and the broadcast extension's own sources
+        # (those belong to the SageBroadcast target below — including them here would
+        # double-compile SampleHandler/Info.plist into the app).
         excludes:
           - "README.md"
+          - "Broadcast"
     info:
       path: ios/Info.plist
       properties:
@@ -61,6 +64,11 @@ targets:
           - UIInterfaceOrientationPortrait
         # Shown when the app requests permission to post live-reaction alerts.
         NSUserNotificationsUsageDescription: "Sage sends you a gentle, private nudge the moment it notices an unusually strong physical reaction, so you can pause and check in with yourself."
+        # Shown when connecting to a WHOOP band / BLE heart-rate strap.
+        NSBluetoothAlwaysUsageDescription: "Sage connects to your WHOOP band over Bluetooth to read your heart rate and notice unusually strong reactions."
+        # Keep receiving heart-rate samples from the band while backgrounded.
+        UIBackgroundModes:
+          - bluetooth-central
     settings:
       base:
         # Must be unique to your Apple ID for free device provisioning. Change here
@@ -76,6 +84,10 @@ targets:
         # or paste your 10-char Team ID here.
         CODE_SIGN_STYLE: Automatic
         DEVELOPMENT_TEAM: ""
+        # App Group so the app and the broadcast extension share files (spike log +
+        # OCR content queue). The capability must be enabled for the matching group id
+        # under your Apple ID — Xcode does this automatically with the entitlement below.
+        CODE_SIGN_ENTITLEMENTS: ios/Sage.entitlements
     dependencies:
       # PulseCore: the headless engine (baseline, correlation, weekly report).
       - package: PulseCore
@@ -84,5 +96,42 @@ targets:
       # PhysiologicalMonitor (source→engine→alerts wiring), ScreenKeywordCapture
       # (ReplayKit OCR), WhoopBLESource (CoreBluetooth). iOS-only; each framework
       # is guarded by `#if canImport(...)` so the Swift package still builds on macOS.
+      - package: PulseCore
+        product: PulseKit
+      # Embed the broadcast upload extension into the app bundle.
+      - target: SageBroadcast
+
+  # ─────────────────────────────────────────────────────────────────────────────
+  # Broadcast Upload Extension: runs during a user-started ReplayKit screen broadcast,
+  # OCRs on-screen text via ScreenKeywordCapture, and writes keyword ContentEvents to
+  # the shared App Group queue the app drains. Separate process, hard ~50MB memory cap.
+  # ─────────────────────────────────────────────────────────────────────────────
+  SageBroadcast:
+    type: app-extension
+    platform: iOS
+    sources:
+      # The extension's own entry point…
+      - path: ios/Broadcast
+      # …plus the shared App Group helpers (compiled into both app and extension).
+      - path: ios/Shared
+    info:
+      path: ios/Broadcast/Info.plist
+      properties:
+        CFBundleDisplayName: Sage
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.hackachusetts.sage.Broadcast
+        PRODUCT_MODULE_NAME: SageBroadcast
+        MARKETING_VERSION: "0.1.0"
+        CURRENT_PROJECT_VERSION: "1"
+        GENERATE_INFOPLIST_FILE: NO
+        SWIFT_VERSION: "5.9"
+        TARGETED_DEVICE_FAMILY: "1,2"
+        CODE_SIGN_STYLE: Automatic
+        DEVELOPMENT_TEAM: ""
+        CODE_SIGN_ENTITLEMENTS: ios/Broadcast/Broadcast.entitlements
+    dependencies:
+      - package: PulseCore
+        product: PulseCore
       - package: PulseCore
         product: PulseKit

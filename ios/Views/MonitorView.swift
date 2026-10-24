@@ -37,7 +37,11 @@ struct SageMonitorView: View {
                     if let topic = vm.lastTopic {
                         lastReactionCard(topic: topic)
                     }
-                    demoCard
+                    if vm.isDeviceMode {
+                        broadcastCard
+                    } else {
+                        simulatorCard
+                    }
                 }
                 .padding(20)
             }
@@ -106,7 +110,41 @@ struct SageMonitorView: View {
         .overlay(RoundedRectangle(cornerRadius: 16).stroke(Color.sageBorder, lineWidth: 1))
     }
 
-    private var demoCard: some View {
+    // MARK: - Device: real screen-OCR via broadcast
+
+    private var broadcastCard: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Keyword detection")
+                .font(SageFont.body(15, weight: .semibold))
+                .foregroundColor(.sageText)
+            Text("Start a screen broadcast, then browse normally. While the red indicator is on, Sage reads the on-screen text and — when your heart rate spikes — sends a gentle notification and logs the trigger in Insights.")
+                .font(SageFont.body(13))
+                .foregroundColor(.sageMuted)
+
+            HStack(spacing: 12) {
+                BroadcastButton(extensionBundleID: vm.broadcastExtensionBundleID)
+                    .frame(width: 52, height: 52)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Start / stop broadcast")
+                        .font(SageFont.body(15, weight: .semibold))
+                        .foregroundColor(.sageText)
+                    Text("Tap, then choose “Sage.” A red status bar shows while active.")
+                        .font(SageFont.body(12))
+                        .foregroundColor(.sageMuted)
+                }
+                Spacer()
+            }
+            .padding(.top, 2)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(18)
+        .background(RoundedRectangle(cornerRadius: 16).fill(Color.sageSurface))
+        .overlay(RoundedRectangle(cornerRadius: 16).stroke(Color.sageBorder, lineWidth: 1))
+    }
+
+    // MARK: - Simulator: typed-keyword stand-in
+
+    private var simulatorCard: some View {
         VStack(alignment: .leading, spacing: 12) {
             Text("Keyword detection (Simulator)")
                 .font(SageFont.body(15, weight: .semibold))

@@ -13,5 +13,4 @@ DerivedData/
 
 # XcodeGen-generated artifacts. Regenerate with `xcodegen generate` from project.yml.
 # The spec (project.yml) is the source of truth and IS committed.
-/Sage.xcodeproj/
 /ios/Info.plist

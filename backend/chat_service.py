@@ -103,88 +103,72 @@ def _signal_note(signal_context):
     )
 
 
-def build_prompt(message, history, signal_context=None):
-    """Build a Mistral-Instruct chat-template prompt.
+def build_messages(message, history, signal_context=None):
+    """Build an OpenAI-style `messages` array for the HF Router chat endpoint.
 
-    The template wraps each exchange as:
-        <s>[INST] {system}\n\n{user} [/INST] {assistant} </s>
-    with the system prompt folded into the FIRST user turn only, and the final
-    (new) user turn left open for the model to complete:
-        ...<s>[INST] {new_user} [/INST]
+    The new Hugging Face Router exposes an OpenAI-compatible
+    `/v1/chat/completions` endpoint, which takes a structured list of messages
+    with explicit roles rather than a hand-assembled Mistral `[INST]` prompt.
 
     Args:
         message: The new user message (already validated/truncated).
         history: Prior turns, oldest first, each {"role", "content"}.
         signal_context: Optional dict describing a recent physiological spike +
             correlated content. When present, a short non-clinical note is folded
-            into the system prompt. Omitted/None keeps prompts identical to before.
+            into the system prompt.
 
     Returns:
-        The assembled prompt string.
+        A list of {"role", "content"} dicts: a system message, the trimmed
+        history, then the new user message.
     """
-    turns = _trim_history(history)
-    # Append the new user message as the final, unanswered turn.
-    turns = turns + [{"role": "user", "content": message}]
-
     system_prompt = SYSTEM_PROMPT + _signal_note(signal_context)
 
-    prompt = ""
-    first_user = True
-    i = 0
-    while i < len(turns):
-        turn = turns[i]
-        if turn["role"] != "user":
-            # Skip a leading/dangling assistant turn with no preceding user turn.
-            i += 1
-            continue
-
-        user_content = turn["content"]
-        if first_user:
-            user_content = f"{system_prompt}\n\n{user_content}"
-            first_user = False
-
-        prompt += f"<s>[INST] {user_content} [/INST]"
-
-        # If an assistant reply follows, close this exchange.
-        if i + 1 < len(turns) and turns[i + 1]["role"] == "assistant":
-            prompt += f" {turns[i + 1]['content']} </s>"
-            i += 2
-        else:
-            # Open turn awaiting the model's completion.
-            i += 1
-
-    return prompt
+    messages = [{"role": "system", "content": system_prompt}]
+    messages.extend(_trim_history(history))
+    messages.append({"role": "user", "content": message})
+    return messages
 
 
 def _parse_generated_text(data):
-    """Extract generated text from HF's list- or dict-shaped response."""
-    if isinstance(data, list) and data:
-        first = data[0]
-        if isinstance(first, dict):
-            return first.get("generated_text", "")
+    """Extract reply text from the chat-completions response shape.
+
+    Expected shape:
+        {"choices": [{"message": {"role": "assistant", "content": "..."}}]}
+    """
     if isinstance(data, dict):
-        return data.get("generated_text", "")
+        choices = data.get("choices")
+        if isinstance(choices, list) and choices:
+            first = choices[0]
+            if isinstance(first, dict):
+                msg = first.get("message")
+                if isinstance(msg, dict):
+                    content = msg.get("content")
+                    if isinstance(content, str):
+                        return content
     return ""
 
 
-def _post_to_hf(prompt):
-    """Send one request to the HF Inference API and return the parsed reply.
+def _post_to_hf(messages):
+    """Send one request to the configured OpenAI-compatible chat endpoint.
 
-    Returns a tuple (text, status_code, raw_json_or_none). Network/timeout
-    failures raise ChatServiceError directly.
+    Works with any provider that implements /v1/chat/completions (local Ollama
+    by default, Hugging Face's router, OpenAI, etc.). The Authorization header
+    is only attached when a token is configured, since local providers like
+    Ollama don't require one.
+
+    Network/timeout failures raise ChatServiceError directly.
     """
-    url = f"{config.HF_API_BASE}/{config.HF_MODEL}"
-    headers = {
-        "Authorization": f"Bearer {config.HF_API_TOKEN}",
-        "Content-Type": "application/json",
-    }
+    url = config.HF_API_BASE
+    headers = {"Content-Type": "application/json"}
+    token = config.LLM_API_TOKEN
+    if token and token.strip():
+        headers["Authorization"] = f"Bearer {token.strip()}"
+
     payload = {
-        "inputs": prompt,
-        "parameters": {
-            "max_new_tokens": 150,
-            "temperature": 0.7,
-            "return_full_text": False,
-        },
+        "model": config.HF_MODEL,
+        "messages": messages,
+        "max_tokens": 150,
+        "temperature": 0.7,
     }
 
     try:
@@ -193,6 +177,11 @@ def _post_to_hf(prompt):
         )
     except requests.exceptions.Timeout:
         raise ChatServiceError("The model took too long to respond. Please try again.")
+    except requests.exceptions.ConnectionError:
+        raise ChatServiceError(
+            f"Could not reach the model service at {url}. "
+            "If using local Ollama, make sure `ollama serve` is running."
+        )
     except requests.exceptions.RequestException as exc:
         raise ChatServiceError(f"Could not reach the model service: {exc}")
 
@@ -207,7 +196,7 @@ def generate_reply(message, history, signal_context=None):
     Args:
         message: The new user message (validated/truncated upstream).
         history: Prior turns, oldest first.
-        signal_context: Optional physiological-signal context (see build_prompt).
+        signal_context: Optional physiological-signal context (see build_messages).
 
     Returns:
         The model's reply text, stripped.
@@ -215,14 +204,14 @@ def generate_reply(message, history, signal_context=None):
     Raises:
         ChatServiceError: on timeout, repeated 503, non-200, or empty output.
     """
-    prompt = build_prompt(message, history, signal_context)
+    messages = build_messages(message, history, signal_context)
 
-    resp = _post_to_hf(prompt)
+    resp = _post_to_hf(messages)
 
     # HF returns 503 while a model is cold-starting. Retry once.
     if resp.status_code == 503:
         time.sleep(config.HF_RETRY_DELAY_SECONDS)
-        resp = _post_to_hf(prompt)
+        resp = _post_to_hf(messages)
         if resp.status_code == 503:
             raise ChatServiceError(
                 "The model is still warming up. Please try again in a moment."

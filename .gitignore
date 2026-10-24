@@ -1,0 +1,12 @@
+# Swift Package Manager build artifacts
+.build/
+.swiftpm/
+Package.resolved
+
+# macOS
+.DS_Store
+
+# Xcode (for when the iOS app target is added)
+*.xcodeproj/xcuserdata/
+*.xcworkspace/xcuserdata/
+DerivedData/
